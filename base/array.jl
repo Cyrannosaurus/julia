@@ -130,9 +130,9 @@ to tell the compiler that indexing operations within the applied expression are 
 inbounds and do not need to taint `:consistent` and `:nothrow`.
 """
 macro _safeindex(ex)
-    return esc(_safeindex(__module__, ex))
+    return esc(_safeindex(@__MODULE__, ex))
 end
-function _safeindex(__module__, ex)
+function _safeindex(mod, ex)
     isa(ex, Expr) || return ex
     if ex.head === :(=)
         lhs = ex.args[1]
@@ -141,16 +141,16 @@ function _safeindex(__module__, ex)
             xs = lhs.args[1]
             args = Vector{Any}(undef, length(lhs.args)-1)
             for i = 2:length(lhs.args)
-                args[i-1] = _safeindex(__module__, lhs.args[i])
+                args[i-1] = _safeindex(mod, lhs.args[i])
             end
-            return Expr(:call, GlobalRef(__module__, :__safe_setindex!), xs, _safeindex(__module__, rhs), args...)
+            return Expr(:call, GlobalRef(mod, :__safe_setindex!), xs, _safeindex(mod, rhs), args...)
         end
     elseif ex.head === :ref # xs[i]
-        return Expr(:call, GlobalRef(__module__, :__safe_getindex), ex.args...)
+        return Expr(:call, GlobalRef(mod, :__safe_getindex), ex.args...)
     end
     args = Vector{Any}(undef, length(ex.args))
     for i = 1:length(ex.args)
-        args[i] = _safeindex(__module__, ex.args[i])
+        args[i] = _safeindex(mod, ex.args[i])
     end
     return Expr(ex.head, args...)
 end
