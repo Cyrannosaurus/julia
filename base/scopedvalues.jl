@@ -76,13 +76,6 @@ function Scope(scope, pairs::Pair{<:ScopedValue}...)
 end
 Scope(::Nothing) = nothing
 
-"""
-    current_scope()::Union{Nothing, Scope}
-
-Return the current dynamic scope.
-"""
-current_scope() = current_task().scope::Union{Nothing, Scope}
-
 function Base.show(io::IO, scope::Scope)
     print(io, Scope, "(")
     first = true
@@ -111,8 +104,7 @@ return `nothing`. Otherwise returns `Some{T}` with the current
 value.
 """
 function get(val::ScopedValue{T}) where {T}
-    # Inline current_scope to avoid doing the type assertion twice.
-    scope = current_task().scope
+    scope = Core.current_scope()::Union{Scope, Nothing}
     if scope === nothing
         isassigned(val) && return Some{T}(val.default)
         return nothing
@@ -147,25 +139,6 @@ function Base.show(io::IO, val::ScopedValue)
 end
 
 """
-    with(f, (var::ScopedValue{T} => val::T)...)
-
-Execute `f` in a new scope with `var` set to `val`.
-"""
-function with(f, pair::Pair{<:ScopedValue}, rest::Pair{<:ScopedValue}...)
-    @nospecialize
-    ct = Base.current_task()
-    current_scope = ct.scope::Union{Nothing, Scope}
-    ct.scope = Scope(current_scope, pair, rest...)
-    try
-        return f()
-    finally
-        ct.scope = current_scope
-    end
-end
-
-with(@nospecialize(f)) = f()
-
-"""
     @with vars... expr
 
 Macro version of `with(f, vars...)` but with `expr` instead of `f` function.
@@ -182,18 +155,18 @@ macro with(exprs...)
     else
         error("@with expects at least one argument")
     end
-    for expr in exprs
-        if expr.head !== :call || first(expr.args) !== :(=>)
-            error("@with expects arguments of the form `A => 2` got $expr")
-        end
-    end
     exprs = map(esc, exprs)
-    quote
-        ct = $(Base.current_task)()
-        current_scope = ct.scope::$(Union{Nothing, Scope})
-        ct.scope = $(Scope)(current_scope, $(exprs...))
-        $(Expr(:tryfinally, esc(ex), :(ct.scope = current_scope)))
-    end
+    Expr(:tryfinally, esc(ex), :(), :($(Scope)($(Core.current_scope)()::Union{Nothing, Scope}, $(exprs...))))
 end
+
+"""
+    with(f, (var::ScopedValue{T} => val::T)...)
+
+Execute `f` in a new scope with `var` set to `val`.
+"""
+function with(f, pair::Pair{<:ScopedValue}, rest::Pair{<:ScopedValue}...)
+    @with(pair, rest..., f())
+end
+with(@nospecialize(f)) = f()
 
 end # module ScopedValues
